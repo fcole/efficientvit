@@ -15,9 +15,21 @@ import onnx
 jax.config.update("jax_enable_x64", True)
 jaxonnxruntime_config.update("jaxort_only_allow_initializers_as_static_args", False)
 
+#DC_AE_VERSION = "dc-ae-f64c128-in-1.0"
+#LATENT_C = 128
+#LATENT_F = 64
+DC_AE_VERSION = "dc-ae-f128c512-in-1.0"
+LATENT_C = 512
+LATENT_F = 128
+
+HEIGHT = 256
+WIDTH = 256
+LATENT_HEIGHT = HEIGHT//LATENT_F
+LATENT_WIDTH = WIDTH//LATENT_F
+
 # Set up transform (same as in dcae_test.py)
 transform = transforms.Compose([
-    DMCrop(512),
+    DMCrop(HEIGHT),
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
 ])
@@ -28,15 +40,18 @@ x = transform(image).numpy()  # Convert to numpy array
 x = jnp.array(x)[None]  # Add batch dimension and convert to JAX array
 
 # Load and JIT compile ONNX models
-encoder_onnx = onnx.load("onnx/encoder.onnx")
-decoder_onnx = onnx.load("onnx/decoder.onnx")
+encoder_onnx = onnx.load(f"onnx/{DC_AE_VERSION}-encoder-{HEIGHT}x{WIDTH}.onnx")
+if 'f128c512' in DC_AE_VERSION:
+    decoder_onnx = onnx.load(f"onnx/{DC_AE_VERSION}-decoder-{HEIGHT}x{WIDTH}/model.onnx")
+else:
+    decoder_onnx = onnx.load(f"onnx/{DC_AE_VERSION}-decoder-{HEIGHT}x{WIDTH}.onnx")
 
 encoder_model_func, encoder_model_params = call_onnx.call_onnx_model(
-    encoder_onnx, {'x': jnp.zeros((1, 3, 512, 512), dtype=jnp.float32)}
+    encoder_onnx, {'x': jnp.zeros((1, 3, HEIGHT, WIDTH), dtype=jnp.float32)}
 )
 
 decoder_model_func, decoder_model_params = call_onnx.call_onnx_model(
-    decoder_onnx, {'z': jnp.zeros((1, 128, 8, 8), dtype=jnp.float32)}
+    decoder_onnx, {'z': jnp.zeros((1, LATENT_C, LATENT_HEIGHT, LATENT_WIDTH), dtype=jnp.float32)}
 )
 
 # Perform inference
