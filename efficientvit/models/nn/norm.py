@@ -4,10 +4,11 @@ import torch
 import torch.nn as nn
 from torch.nn.modules.batchnorm import _BatchNorm
 
-from efficientvit.models.nn.triton_rms_norm import TritonRMSNorm2dFunc
+# from efficientvit.models.nn.triton_rms_norm import TritonRMSNorm2dFunc
 from efficientvit.models.utils import build_kwargs_from_config
 
-__all__ = ["LayerNorm2d", "TritonRMSNorm2d", "build_norm", "reset_bn", "set_norm_eps"]
+# __all__ = ["LayerNorm2d", "TritonRMSNorm2d", "PyTorchRMSNorm2d", "build_norm", "reset_bn", "set_norm_eps"]
+__all__ = ["LayerNorm2d", "PyTorchRMSNorm2d", "build_norm", "reset_bn", "set_norm_eps"]
 
 
 class LayerNorm2d(nn.LayerNorm):
@@ -19,9 +20,21 @@ class LayerNorm2d(nn.LayerNorm):
         return out
 
 
-class TritonRMSNorm2d(nn.LayerNorm):
+# class TritonRMSNorm2d(nn.LayerNorm):
+#    def forward(self, x: torch.Tensor) -> torch.Tensor:
+#        return TritonRMSNorm2dFunc.apply(x, self.weight, self.bias, self.eps)
+
+
+class PyTorchRMSNorm2d(nn.LayerNorm):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return TritonRMSNorm2dFunc.apply(x, self.weight, self.bias, self.eps)
+        # Calculate RMS
+        rms = torch.sqrt(torch.mean(torch.square(x), dim=1, keepdim=True) + self.eps)
+        # Normalize
+        x = x / rms
+        # Apply affine transform if weights/bias exist
+        if self.elementwise_affine:
+            x = x * self.weight.view(1, -1, 1, 1) + self.bias.view(1, -1, 1, 1)
+        return x
 
 
 # register normalization function here
@@ -29,12 +42,13 @@ REGISTERED_NORM_DICT: dict[str, type] = {
     "bn2d": nn.BatchNorm2d,
     "ln": nn.LayerNorm,
     "ln2d": LayerNorm2d,
-    "trms2d": TritonRMSNorm2d,
+    "trms2d": PyTorchRMSNorm2d,  # TritonRMSNorm2d,
+    "ptrms2d": PyTorchRMSNorm2d,
 }
 
 
 def build_norm(name="bn2d", num_features=None, **kwargs) -> Optional[nn.Module]:
-    if name in ["ln", "ln2d", "trms2d"]:
+    if name in ["ln", "ln2d", "trms2d", "ptrms2d"]:
         kwargs["normalized_shape"] = num_features
     else:
         kwargs["num_features"] = num_features
